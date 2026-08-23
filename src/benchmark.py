@@ -38,7 +38,7 @@ UID = _db_config['UID']
 PWD = _db_config['PWD']
 DATABASE = _db_config['DATABASE']
 
-DATA_SIZES = [100, 500, 1000]
+DATA_SIZES = [100, 1000, 10000, 100000]
 OUTPUT_DIR = os.path.join(BASE_DIR, 'result')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -156,20 +156,21 @@ def bench_select_point(cursor, table, n, sample_count=SAMPLE_COUNT):
         for pk in ids:
             cursor.execute(sql, pk)
             cursor.fetchall()
-    return timed(do)
+    return timed(do) / len(ids)
 
 
-def bench_select_range(cursor, table, n, range_pct=10):
+def bench_select_range(cursor, table, n, range_pct=10, sample_count=SAMPLE_COUNT):
     """Range scan by PK: SELECT WHERE id BETWEEN ... (10% of data)."""
     range_size = max(1, int(n * range_pct / 100))
-    start_id = random.randint(1, max(1, n - range_size + 1))
-    end_id = start_id + range_size - 1
     sql = f"SELECT * FROM [{table}] WHERE id BETWEEN ? AND ?"
 
     def do():
-        cursor.execute(sql, start_id, end_id)
-        cursor.fetchall()
-    return timed(do)
+        for _ in range(sample_count):
+            start_id = random.randint(1, max(1, n - range_size + 1))
+            end_id = start_id + range_size - 1
+            cursor.execute(sql, start_id, end_id)
+            cursor.fetchall()
+    return timed(do) / sample_count
 
 
 def bench_update(cursor, table, n, sample_count=SAMPLE_COUNT):
@@ -234,7 +235,7 @@ def run_benchmarks():
             cursor.connection.commit()
             t = bench_sequential_insert(cursor, tbl, size)
             results[struct_name]['Sequential Insert'].append(t)
-            print(f"  Sequential Insert : {t:.4f}s", flush=True)
+            print(f"  Sequential Insert : {t:.6f}s", flush=True)
             drop_table(cursor, tbl)
 
             # ── Random Insert ─────────────────────────────────────
@@ -244,7 +245,7 @@ def run_benchmarks():
             cursor.connection.commit()
             t = bench_random_insert(cursor, tbl, size)
             results[struct_name]['Random Insert'].append(t)
-            print(f"  Random Insert     : {t:.4f}s", flush=True)
+            print(f"  Random Insert     : {t:.6f}s", flush=True)
             drop_table(cursor, tbl)
 
             # ── Prepare table for Read / Update / Delete tests ────
@@ -262,23 +263,23 @@ def run_benchmarks():
             # ── Select (Point) ────────────────────────────────────
             t = bench_select_point(cursor, tbl, size)
             results[struct_name]['Select (Point)'].append(t)
-            print(f"  Select (Point)    : {t:.4f}s", flush=True)
+            print(f"  Select (Point)    : {t:.6f}s", flush=True)
 
             # ── Select (Range) ────────────────────────────────────
             cursor.execute("DBCC DROPCLEANBUFFERS")
             t = bench_select_range(cursor, tbl, size)
             results[struct_name]['Select (Range)'].append(t)
-            print(f"  Select (Range)    : {t:.4f}s", flush=True)
+            print(f"  Select (Range)    : {t:.6f}s", flush=True)
 
             # ── Update ────────────────────────────────────────────
             t = bench_update(cursor, tbl, size)
             results[struct_name]['Update'].append(t)
-            print(f"  Update            : {t:.4f}s", flush=True)
+            print(f"  Update            : {t:.6f}s", flush=True)
 
             # ── Delete ────────────────────────────────────────────
             t = bench_delete(cursor, tbl, size)
             results[struct_name]['Delete'].append(t)
-            print(f"  Delete            : {t:.4f}s", flush=True)
+            print(f"  Delete            : {t:.6f}s", flush=True)
 
             drop_table(cursor, tbl)
 
@@ -319,7 +320,7 @@ def plot_results(results, operations):
             )
             for x, y in zip(DATA_SIZES, times):
                 ax.annotate(
-                    f'{y:.4f}s',
+                    f'{y:.6f}s',
                     (x, y),
                     textcoords='offset points',
                     xytext=(0, 10),
@@ -410,7 +411,7 @@ def plot_results(results, operations):
         for i in range(len(operations)):
             for j in range(len(DATA_SIZES)):
                 val = data[i, j]
-                ax.text(j, i, f'{val:.4f}s', ha='center', va='center',
+                ax.text(j, i, f'{val:.6f}s', ha='center', va='center',
                         fontsize=7, fontweight='bold',
                         color='white' if val > data.max() * 0.6 else 'black')
 
@@ -434,7 +435,7 @@ def print_summary_tables(results, operations):
         rows = []
         for struct_name in STRUCTURES:
             row = [struct_name] + [
-                f'{t:.4f}s' for t in results[struct_name][op]
+                f'{t:.6f}s' for t in results[struct_name][op]
             ]
             rows.append(row)
         print(tabulate(rows, headers=headers, tablefmt='grid'))
