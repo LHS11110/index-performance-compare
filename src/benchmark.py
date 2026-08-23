@@ -80,19 +80,19 @@ STRUCTURES = {
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
-def get_connection(database=None):
+def get_connection(database=None, autocommit=False):
     cs = (
         f"DRIVER={DRIVER};SERVER={SERVER};UID={UID};PWD={PWD};"
         f"TrustServerCertificate=yes;"
     )
     if database:
         cs += f"DATABASE={database};"
-    conn = pyodbc.connect(cs, autocommit=True)
+    conn = pyodbc.connect(cs, autocommit=autocommit)
     return conn
 
 
 def ensure_database():
-    conn = get_connection()
+    conn = get_connection(autocommit=True)
     cursor = conn.cursor()
     cursor.execute(f"""
         IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = '{DATABASE}')
@@ -103,6 +103,7 @@ def ensure_database():
 
 def drop_table(cursor, table):
     cursor.execute(f"IF OBJECT_ID('{table}', 'U') IS NOT NULL DROP TABLE [{table}];")
+    cursor.connection.commit()
 
 
 def timed(func):
@@ -113,20 +114,19 @@ def timed(func):
 
 # ── Batch insert using VALUES list (much faster than executemany) ─────
 def bulk_insert_batch(cursor, table, ids, batch_size=1000):
-    """Insert rows using multi-row VALUES batches for speed."""
+    """Insert rows using executemany for speed."""
+    sql = f"INSERT INTO [{table}] (id, val1, val2, val3) VALUES (?, ?, ?, ?)"
     for i in range(0, len(ids), batch_size):
         chunk = ids[i:i + batch_size]
-        values_parts = []
+        data = []
         for row_id in chunk:
             val1 = f'data_{row_id}'
             val2 = random.randint(1, 1_000_000)
             month = random.randint(1, 12)
             day = random.randint(1, 28)
-            values_parts.append(
-                f"({row_id}, N'{val1}', {val2}, '2024-{month:02d}-{day:02d}')"
-            )
-        sql = f"INSERT INTO [{table}] (id, val1, val2, val3) VALUES {','.join(values_parts)}"
-        cursor.execute(sql)
+            data.append((row_id, f'data_{row_id}', val2, f'2024-{month:02d}-{day:02d}'))
+        cursor.executemany(sql, data)
+        cursor.connection.commit()
 
 
 # ── Benchmark functions ──────────────────────────────────────────────
@@ -176,10 +176,11 @@ def bench_update(cursor, table, n, sample_count=SAMPLE_COUNT):
     """Update random rows by PK."""
     ids = random.sample(range(1, n + 1), min(sample_count, n))
     sql = f"UPDATE [{table}] SET val1 = ?, val2 = ? WHERE id = ?"
+    data = [(f'updated_{pk}', random.randint(1, 999999), pk) for pk in ids]
 
     def do():
-        for pk in ids:
-            cursor.execute(sql, f'updated_{pk}', random.randint(1, 999999), pk)
+        cursor.executemany(sql, data)
+        cursor.connection.commit()
     return timed(do)
 
 
@@ -187,10 +188,11 @@ def bench_delete(cursor, table, n, sample_count=SAMPLE_COUNT):
     """Delete random rows by PK."""
     ids = random.sample(range(1, n + 1), min(sample_count, n))
     sql = f"DELETE FROM [{table}] WHERE id = ?"
+    data = [(pk,) for pk in ids]
 
     def do():
-        for pk in ids:
-            cursor.execute(sql, pk)
+        cursor.executemany(sql, data)
+        cursor.connection.commit()
     return timed(do)
 
 
@@ -209,8 +211,9 @@ def run_benchmarks():
 
     results = {s: {op: [] for op in operations} for s in STRUCTURES}
 
-    conn = get_connection(DATABASE)
+    conn = get_connection(DATABASE, autocommit=False)
     cursor = conn.cursor()
+    cursor.fast_executemany = True
 
     total_tests = len(STRUCTURES) * len(DATA_SIZES)
     test_num = 0
@@ -228,6 +231,7 @@ def run_benchmarks():
             tbl = f"b_{safe_name}_{size}_seq"
             drop_table(cursor, tbl)
             cursor.execute(struct_cfg['create'].format(table=tbl))
+            cursor.connection.commit()
             t = bench_sequential_insert(cursor, tbl, size)
             results[struct_name]['Sequential Insert'].append(t)
             print(f"  Sequential Insert : {t:.4f}s", flush=True)
@@ -237,6 +241,7 @@ def run_benchmarks():
             tbl = f"b_{safe_name}_{size}_rnd"
             drop_table(cursor, tbl)
             cursor.execute(struct_cfg['create'].format(table=tbl))
+            cursor.connection.commit()
             t = bench_random_insert(cursor, tbl, size)
             results[struct_name]['Random Insert'].append(t)
             print(f"  Random Insert     : {t:.4f}s", flush=True)
@@ -246,6 +251,7 @@ def run_benchmarks():
             tbl = f"b_{safe_name}_{size}_crud"
             drop_table(cursor, tbl)
             cursor.execute(struct_cfg['create'].format(table=tbl))
+            cursor.connection.commit()
             # Populate with sequential data
             ids = list(range(1, size + 1))
             bulk_insert_batch(cursor, tbl, ids)

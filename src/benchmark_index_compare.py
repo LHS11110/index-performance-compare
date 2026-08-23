@@ -41,20 +41,21 @@ STRUCTURES = {
     """
 }
 
-def get_connection(database=None):
+def get_connection(database=None, autocommit=False):
     cs = f"DRIVER={DRIVER};SERVER={SERVER};UID={UID};PWD={PWD};TrustServerCertificate=yes;"
     if database:
         cs += f"DATABASE={database};"
-    return pyodbc.connect(cs, autocommit=True)
+    return pyodbc.connect(cs, autocommit=autocommit)
 
 def ensure_database():
-    conn = get_connection()
+    conn = get_connection(autocommit=True)
     cursor = conn.cursor()
     cursor.execute(f"IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = '{DATABASE}') CREATE DATABASE [{DATABASE}];")
     conn.close()
 
 def drop_table(cursor, table):
     cursor.execute(f"IF OBJECT_ID('{table}', 'U') IS NOT NULL DROP TABLE [{table}];")
+    cursor.connection.commit()
 
 def timed(func):
     start = time.perf_counter()
@@ -68,8 +69,8 @@ def bench_insert(cursor, table, n):
     # Shuffle for more realistic insert performance (avoid purely sequential page fills)
     random.shuffle(data)
     def do():
-        for row in data:
-            cursor.execute(sql, row)
+        cursor.executemany(sql, data)
+        cursor.connection.commit()
     return timed(do)
 
 def bench_read(cursor, table, n):
@@ -86,24 +87,27 @@ def bench_update(cursor, table, n):
     sql = f"UPDATE [{table}] SET val1 = ?, val2 = ? WHERE id = ?"
     ids = list(range(1, n + 1))
     random.shuffle(ids)
+    data = [(f'updated_{pk}', random.randint(1, 100000), pk) for pk in ids]
     def do():
-        for pk in ids:
-            cursor.execute(sql, f'updated_{pk}', random.randint(1, 100000), pk)
+        cursor.executemany(sql, data)
+        cursor.connection.commit()
     return timed(do)
 
 def bench_delete(cursor, table, n):
     sql = f"DELETE FROM [{table}] WHERE id = ?"
     ids = list(range(1, n + 1))
     random.shuffle(ids)
+    data = [(pk,) for pk in ids]
     def do():
-        for pk in ids:
-            cursor.execute(sql, pk)
+        cursor.executemany(sql, data)
+        cursor.connection.commit()
     return timed(do)
 
 def run_benchmarks():
     ensure_database()
-    conn = get_connection(DATABASE)
+    conn = get_connection(DATABASE, autocommit=False)
     cursor = conn.cursor()
+    cursor.fast_executemany = True
     
     operations = ['Insert (C)', 'Read (R)', 'Update (U)', 'Delete (D)']
     results = {struct: {op: [] for op in operations} for struct in STRUCTURES}
@@ -116,6 +120,7 @@ def run_benchmarks():
             
             drop_table(cursor, table_name)
             cursor.execute(create_sql.format(table=table_name))
+            cursor.connection.commit()
             
             # 1. Create (Insert)
             t_insert = bench_insert(cursor, table_name, size)
