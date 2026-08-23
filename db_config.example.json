@@ -1,0 +1,7 @@
+{
+    "DRIVER": "{ODBC Driver 18 for SQL Server}",
+    "SERVER": "localhost",
+    "UID": "your_username",
+    "PWD": "your_password",
+    "DATABASE": "database_name"
+}
