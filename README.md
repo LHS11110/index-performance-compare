@@ -2,6 +2,12 @@
 
 SQL Server 환경에서 힙(Heap), 비클러스터형 인덱스(Non-Clustered Index), 클러스터형 인덱스(Clustered Index) 구조 간의 CRUD 성능을 벤치마킹하고 시각화하는 프로젝트입니다.
 
+## 🎯 벤치마크 목적 (Purpose)
+
+본 프로젝트는 데이터베이스 인덱스에 대해 인터넷 상에 널리 알려진 다음 두 가지 통념을 실제 데이터를 통해 수치적으로 검증하고자 기획되었습니다:
+1. **"Non-Clustered Index의 CUD(생성, 수정, 삭제) 연산 속도가 Clustered Index보다 더 빠르다"**라는 주장에 대한 실제 수치적 확인.
+2. **"데이터 변경 빈도가 높은 환경에서는 인덱스를 적용하면 안 된다"**는 통설이 실제 벤치마크 환경에서도 유효하게 나타나는지 팩트체크.
+
 ## 📊 벤치마크 방법론 (Methodology)
 
 본 벤치마크는 Python의 `pyodbc` 라이브러리를 사용하여 SQL Server에 접속하고, 100건부터 최대 100,000건의 데이터를 대상으로 테이블 구조별 쿼리 소요 시간을 측정합니다. 네트워크 오버헤드를 최소화하기 위해 모든 DML(Insert, Update, Delete) 쿼리는 `cursor.executemany`와 `fast_executemany=True` 옵션을 통해 일괄(Batch) 처리되었으며, 수동 Commit을 적용하여 트랜잭션 오버헤드를 최소화하고 순수 연산 속도를 측정했습니다.
