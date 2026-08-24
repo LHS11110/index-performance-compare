@@ -21,13 +21,13 @@ SQL Server 환경에서 힙(Heap), 비클러스터형 인덱스(Non-Clustered In
 
 ---
 
-## 📈 실험 결과 분석 (Results)
+## 📈 실험 결과 요약 (Results)
 
-(100,000건 데이터 기준 실험 결과 요약)
-- **Select Point**: Clustered Index(0.0011s)와 NC Index(0.0011s)는 B-Tree 탐색으로 인해 Pure Heap(0.0068s) 대비 월등히 빠른 검색 속도를 보여줍니다.
-- **Select Range**: Clustered Index(0.0091s)는 데이터가 물리적으로 정렬되어 있어 범위 탐색에 가장 유리합니다. 반면 NC Index(0.0458s)는 인덱스를 찾은 후 테이블(Heap) 데이터 페이지로 다시 접근해야 하는 RID Lookup 오버헤드로 인해, 순차적으로 Full Scan을 수행하는 Pure Heap(0.0297s)보다 오히려 느려지는 현상이 관찰되었습니다.
-- **Update & Delete**: Clustered Index와 NC Index 모두 인덱스를 통해 변경할 대상을 빠르게 찾을 수 있어 Pure Heap(약 1.7s)에 비해 수십에서 수백 배 빠른 성능(약 0.01s~0.02s)을 보여주었습니다.
-- **Insert**: Pure Heap과 Clustered Index의 삽입 속도는 대략 비슷하나, Heap + NC Index의 경우 데이터 삽입 시 테이블 본문뿐만 아니라 인덱스 트리도 함께 갱신해야 하므로 부가적인 성능 오버헤드(약 20% 지연)가 발생합니다.
+(100,000건 데이터 기준 벤치마크 결과)
+- **Select Point (단일 조회)**: Clustered Index(0.0011s)와 Heap + NC Index(0.0011s)가 Pure Heap(0.0068s) 대비 더 빠른 수행 시간을 기록했습니다.
+- **Select Range (범위 조회)**: Clustered Index(0.0091s)가 가장 빠른 수행 시간을 보였으며, Pure Heap(0.0297s)과 Heap + NC Index(0.0458s) 순으로 측정되었습니다.
+- **Update & Delete (수정 및 삭제)**: Clustered Index와 Heap + NC Index 모두 약 0.01s~0.02s의 소요 시간을 기록하여, 약 1.7s가 소요된 Pure Heap보다 빠른 성능을 보였습니다.
+- **Insert (삽입)**: Sequential 및 Random Insert 모두 Pure Heap과 Clustered Index의 삽입 속도(약 4.6s~5.0s)가 유사하게 측정되었으며, Heap + NC Index(약 5.7s)가 상대적으로 높은 수행 시간을 기록했습니다.
 
 ---
 
@@ -55,11 +55,11 @@ SQL Server 환경에서 힙(Heap), 비클러스터형 인덱스(Non-Clustered In
 프로젝트 루트 디렉토리에 `db_config.example.json` 파일을 복사하여 `db_config.json`을 생성하고 데이터베이스 자격 증명을 입력합니다.
 ```json
 {
-  "DRIVER": "{ODBC Driver 18 for SQL Server}",
-  "SERVER": "localhost",
-  "UID": "SA",
-  "PWD": "YourStrongPassword!",
-  "DATABASE": "master"
+    "DRIVER": "{ODBC Driver 18 for SQL Server}",
+    "SERVER": "localhost",
+    "UID": "your_username",
+    "PWD": "your_password",
+    "DATABASE": "database_name"
 }
 ```
 
