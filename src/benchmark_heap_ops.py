@@ -58,6 +58,7 @@ RESULT_TOP_PCT = 100 / RESULT_TOP_DIVISOR
 # Scenario 2: NC index on val1  → index exists but on a different column
 # Scenario 3: No index at all   → pure heap
 SCENARIOS = [
+    'Clustered Index (covers column)',
     'NC Index (covers column)',
     'NC Index (other column)',
     'Pure Heap (no index)',
@@ -226,7 +227,15 @@ def setup_scenario(cursor, main_tbl, join_tbl, scenario, n):
     drop_table(cursor, join_tbl)
     create_join_table(cursor, join_tbl, n)
 
-    if scenario == 'NC Index (covers column)':
+    if scenario == 'Clustered Index (covers column)':
+        # Clustered index on val2 — the column used for ORDER BY / GROUP BY / JOIN
+        cursor.execute(f"CREATE CLUSTERED INDEX CIX_{main_tbl}_val2 ON [{main_tbl}](val2);")
+        cursor.connection.commit()
+        # Also add clustered index on join table's ref_id for JOIN
+        cursor.execute(f"CREATE CLUSTERED INDEX CIX_{join_tbl}_ref ON [{join_tbl}](ref_id);")
+        cursor.connection.commit()
+
+    elif scenario == 'NC Index (covers column)':
         # NC index on val2 — the column used for ORDER BY / GROUP BY / JOIN
         cursor.execute(f"CREATE NONCLUSTERED INDEX IX_{main_tbl}_val2 ON [{main_tbl}](val2);")
         cursor.connection.commit()
@@ -305,11 +314,13 @@ def run_benchmarks():
 # ── Visualization ─────────────────────────────────────────────────────
 def plot_results(results, operations):
     colors = {
+        'Clustered Index (covers column)': '#3498db',
         'NC Index (covers column)': '#2ecc71',
         'NC Index (other column)':  '#f39c12',
         'Pure Heap (no index)':     '#e74c3c',
     }
     markers = {
+        'Clustered Index (covers column)': 'D',
         'NC Index (covers column)': '^',
         'NC Index (other column)':  's',
         'Pure Heap (no index)':     'o',
@@ -366,7 +377,7 @@ def plot_results(results, operations):
         fontsize=16, fontweight='bold', y=1.02,
     )
 
-    bar_width = 0.25
+    bar_width = 0.2
 
     for size_idx, size in enumerate(DATA_SIZES):
         ax = axes2[size_idx]
@@ -381,12 +392,12 @@ def plot_results(results, operations):
             for bar, val in zip(bars, times):
                 ax.text(
                     bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                    f'{val:.4f}', ha='center', va='bottom', fontsize=6,
+                    f'{val:.4f}', ha='center', va='bottom', fontsize=5,
                     fontweight='bold',
                 )
 
         ax.set_title(f'N = {size:,}', fontsize=12, fontweight='bold')
-        ax.set_xticks(x + bar_width)
+        ax.set_xticks(x + bar_width * 1.5)
         ax.set_xticklabels(operations, fontsize=9)
         ax.set_ylabel('Time (s)')
         if size_idx == 0:
@@ -400,7 +411,7 @@ def plot_results(results, operations):
     print(f"Bar chart saved: {path2}")
 
     # ── 3. Heatmap comparison ─────────────────────────────────────
-    fig3, axes3 = plt.subplots(1, 3, figsize=(22, 5))
+    fig3, axes3 = plt.subplots(1, len(SCENARIOS), figsize=(7 * len(SCENARIOS), 5))
     fig3.suptitle(
         f'Heatmap: Heap Operation Execution Time — Inline TOP 1/{FILTER_DIVISOR} ({FILTER_PCT:.0f}%), Result TOP 1/{RESULT_TOP_DIVISOR} ({RESULT_TOP_PCT:.0f}%)',
         fontsize=16, fontweight='bold', y=1.04,
