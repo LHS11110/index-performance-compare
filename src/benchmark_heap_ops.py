@@ -45,8 +45,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 REPEAT_COUNT = 100
 
 # Filter divisor: queries process N/FILTER_DIVISOR rows via inline view with TOP
-FILTER_DIVISOR = 10
+FILTER_DIVISOR = 1
 FILTER_PCT = 100 / FILTER_DIVISOR  # percentage of data used
+
+# Result TOP divisor: outer SELECT returns N/RESULT_TOP_DIVISOR rows
+RESULT_TOP_DIVISOR = 10
+RESULT_TOP_PCT = 100 / RESULT_TOP_DIVISOR
 
 # ── Three scenarios ───────────────────────────────────────────────────
 # The "target column" for ORDER BY / GROUP BY / JOIN will be val2 (INT).
@@ -156,10 +160,11 @@ def create_join_table(cursor, table, n, batch_size=1000):
 
 # ── Benchmark functions ──────────────────────────────────────────────
 def bench_order_by(cursor, table, n):
-    """ORDER BY val2 — inline view with TOP to limit to N/FILTER_DIVISOR rows."""
+    """ORDER BY val2 — inline view TOP + outer SELECT TOP 1/RESULT_TOP_DIVISOR."""
     top_n = max(1, n // FILTER_DIVISOR)
+    result_top = max(1, n // RESULT_TOP_DIVISOR)
     sql = f"""
-        SELECT sub.id, sub.val1, sub.val2, sub.val3
+        SELECT TOP ({result_top}) sub.id, sub.val1, sub.val2, sub.val3
         FROM (SELECT TOP ({top_n}) id, val1, val2, val3 FROM [{table}]) sub
         ORDER BY sub.val2
     """
@@ -172,10 +177,11 @@ def bench_order_by(cursor, table, n):
 
 
 def bench_group_by(cursor, table, n):
-    """GROUP BY on val2 — inline view with TOP to limit to N/FILTER_DIVISOR rows."""
+    """GROUP BY on val2 — inline view TOP + outer SELECT TOP 1/RESULT_TOP_DIVISOR."""
     top_n = max(1, n // FILTER_DIVISOR)
+    result_top = max(1, n // RESULT_TOP_DIVISOR)
     sql = f"""
-        SELECT sub.val2, COUNT(*) AS cnt, AVG(sub.id) AS avg_id
+        SELECT TOP ({result_top}) sub.val2, COUNT(*) AS cnt, AVG(sub.id) AS avg_id
         FROM (SELECT TOP ({top_n}) id, val1, val2, val3 FROM [{table}]) sub
         GROUP BY sub.val2
     """
@@ -188,10 +194,11 @@ def bench_group_by(cursor, table, n):
 
 
 def bench_join(cursor, main_table, join_table, n):
-    """INNER JOIN — inline views with TOP to limit to N/FILTER_DIVISOR rows."""
+    """INNER JOIN — inline view TOP + outer SELECT TOP 1/RESULT_TOP_DIVISOR."""
     top_n = max(1, n // FILTER_DIVISOR)
+    result_top = max(1, n // RESULT_TOP_DIVISOR)
     sql = f"""
-        SELECT a.id, a.val1, a.val2, b.detail, b.amount
+        SELECT TOP ({result_top}) a.id, a.val1, a.val2, b.detail, b.amount
         FROM (SELECT TOP ({top_n}) id, val1, val2, val3 FROM [{main_table}]) a
         INNER JOIN (SELECT TOP ({top_n}) ref_id, detail, amount FROM [{join_table}]) b
             ON a.val2 = b.ref_id
@@ -260,8 +267,10 @@ def run_benchmarks():
         for size in DATA_SIZES:
             test_num += 1
             top_n = max(1, size // FILTER_DIVISOR)
+            result_top = max(1, size // RESULT_TOP_DIVISOR)
             print(f"\n{'='*60}", flush=True)
-            print(f"[{test_num}/{total_tests}] {scenario} | N = {size:,} | TOP {top_n:,} ({FILTER_PCT:.0f}%)", flush=True)
+            print(f"[{test_num}/{total_tests}] {scenario} | N = {size:,} | "
+                  f"Inline TOP {top_n:,} ({FILTER_PCT:.0f}%) | Result TOP {result_top:,} ({RESULT_TOP_PCT:.0f}%)", flush=True)
             print(f"{'='*60}", flush=True)
 
             safe = scenario.replace(' ', '_').replace('(', '').replace(')', '').replace(',', '')
@@ -310,7 +319,7 @@ def plot_results(results, operations):
     fig, axes = plt.subplots(1, 3, figsize=(22, 7))
     fig.suptitle(
         'Heap Table Operation Benchmark: NC Index vs Pure Heap\n'
-        f'(ORDER BY / GROUP BY / JOIN) — Using {FILTER_PCT:.0f}% of data (TOP N/{FILTER_DIVISOR})',
+        f'(ORDER BY / GROUP BY / JOIN) — Inline TOP 1/{FILTER_DIVISOR} ({FILTER_PCT:.0f}%), Result TOP 1/{RESULT_TOP_DIVISOR} ({RESULT_TOP_PCT:.0f}%)',
         fontsize=16, fontweight='bold', y=1.04,
     )
 
@@ -353,7 +362,7 @@ def plot_results(results, operations):
     # ── 2. Grouped bar charts per data size ──────────────────────
     fig2, axes2 = plt.subplots(1, len(DATA_SIZES), figsize=(24, 6), sharey=False)
     fig2.suptitle(
-        f'Heap Operation Performance by Data Size — Using {FILTER_PCT:.0f}% of data (TOP N/{FILTER_DIVISOR})',
+        f'Heap Operation Performance by Data Size — Inline TOP 1/{FILTER_DIVISOR} ({FILTER_PCT:.0f}%), Result TOP 1/{RESULT_TOP_DIVISOR} ({RESULT_TOP_PCT:.0f}%)',
         fontsize=16, fontweight='bold', y=1.02,
     )
 
@@ -393,7 +402,7 @@ def plot_results(results, operations):
     # ── 3. Heatmap comparison ─────────────────────────────────────
     fig3, axes3 = plt.subplots(1, 3, figsize=(22, 5))
     fig3.suptitle(
-        f'Heatmap: Heap Operation Execution Time (seconds) — Using {FILTER_PCT:.0f}% of data (TOP N/{FILTER_DIVISOR})',
+        f'Heatmap: Heap Operation Execution Time — Inline TOP 1/{FILTER_DIVISOR} ({FILTER_PCT:.0f}%), Result TOP 1/{RESULT_TOP_DIVISOR} ({RESULT_TOP_PCT:.0f}%)',
         fontsize=16, fontweight='bold', y=1.04,
     )
 
@@ -452,7 +461,8 @@ if __name__ == '__main__':
     print(f"  Data sizes    : {DATA_SIZES}")
     print(f"  Scenarios     : {SCENARIOS}")
     print(f"  Repeat count  : {REPEAT_COUNT}")
-    print(f"  Filter divisor: 1/{FILTER_DIVISOR} (TOP N/{FILTER_DIVISOR} = {FILTER_PCT:.0f}% of data)")
+    print(f"  Inline TOP    : 1/{FILTER_DIVISOR} ({FILTER_PCT:.0f}% of data)")
+    print(f"  Result TOP    : 1/{RESULT_TOP_DIVISOR} ({RESULT_TOP_PCT:.0f}% of data)")
     print()
 
     results, operations = run_benchmarks()
