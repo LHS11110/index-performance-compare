@@ -29,11 +29,25 @@ SQL Server 환경에서 힙(Heap), 비클러스터형 인덱스(Non-Clustered In
 
 ## 📈 실험 결과 요약 (Results)
 
-(100,000건 데이터 기준 벤치마크 결과)
-- **Select Point (단일 조회)**: Clustered Index(0.0011s)와 Heap + NC Index(0.0011s)가 Pure Heap(0.0068s) 대비 더 빠른 수행 시간을 기록했습니다.
-- **Select Range (범위 조회)**: Clustered Index(0.0091s)가 가장 빠른 수행 시간을 보였으며, Pure Heap(0.0297s)과 Heap + NC Index(0.0458s) 순으로 측정되었습니다.
-- **Update & Delete (수정 및 삭제)**: Clustered Index와 Heap + NC Index 모두 약 0.01s~0.02s의 소요 시간을 기록하여, 약 1.7s가 소요된 Pure Heap보다 빠른 성능을 보였습니다.
-- **Insert (삽입)**: Sequential 및 Random Insert 모두 Pure Heap과 Clustered Index의 삽입 속도(약 4.6s~5.0s)가 유사하게 측정되었으며, Heap + NC Index(약 5.7s)가 상대적으로 높은 수행 시간을 기록했습니다.
+전체 벤치마크는 100건부터 100,000건의 데이터를 대상으로 진행되었으며, 아래는 **100,000건 데이터 기준 최신 측정 결과**입니다.
+
+### 1. 기본 인덱스 성능 (Basic)
+- **단일 조회 (Point)**: Clustered Index(0.0010s)와 Heap + NC Index(0.0010s)가 Pure Heap(0.0044s) 대비 월등히 빠른 수행 시간을 기록했습니다.
+- **범위 조회 (Range)**: Clustered Index(0.0105s)가 가장 빠르며, Pure Heap(0.0306s)이 그 뒤를 이었습니다. Heap + NC Index(0.0422s)는 범위 조회 시 RID Lookup 비용으로 인해 힙(Full Scan)보다도 성능이 저하되는 것을 확인했습니다.
+
+### 2. 힙 테이블 연산 성능 (Heap Ops: ORDER BY, GROUP BY, JOIN)
+- **ORDER BY / GROUP BY**: 정렬 기준 컬럼에 Clustered Index가 있을 때(각 0.081s, 0.048s) 압도적으로 빨랐습니다. NC Index를 탈 경우(각 0.175s, 0.079s) Pure Heap(0.183s, 0.089s)과 비슷하거나 미세하게 우세했지만 큰 차이가 없었습니다.
+- **JOIN**: 테이블 연결 조건 컬럼이 Clustered(0.076s), NC Index(0.080s) 인 경우 모두 Pure Heap(0.091s)보다 성능 향상이 있었습니다.
+
+### 3. 인덱스 유무 및 타겟에 따른 CUD 성능 (CUD)
+- **Insert**: 인덱스가 없는 Pure Heap(4.7s)과 Clustered Index(4.6s)가 가장 빠릅니다. 반면 NC Index가 하나라도 존재하면 페이지 재정렬 및 인덱스 유지보수 오버헤드로 인해 약 5.5s~6.0s로 성능이 저하되었습니다.
+- **Update / Delete (Unindexed - 인덱스를 타지 않는 조건)**: `WHERE` 조건에 인덱스가 없는 컬럼을 사용하면 모든 구조에서 1.7s ~ 2.1s로 비슷하게 느린 시간(Full Table Scan)이 소요되었습니다. 인덱스 여부와 관계없이 DML 조건이 인덱스를 타지 못하면 성능 저하가 큽니다.
+- **Update (Indexed - 인덱스를 타는 조건)**:
+  - Clustered Index(PK) Seek: **0.022s** (가장 빠름)
+  - NC Index(PK) Seek: **0.028s**
+  - NC Index(Non-PK) Seek: **0.058s** (RID Lookup 오버헤드 발생)
+  - CI + NC Index(Non-PK) Seek: **0.086s** (Key Lookup 오버헤드 발생)
+  - 인덱스를 타게 되면 Table Scan(2.0s) 대비 수십 배 성능이 향상되나, Non-PK 컬럼에 대한 NC 인덱스를 통한 업데이트는 Lookup 오버헤드로 인해 다소 차이가 납니다.
 
 ---
 
@@ -54,7 +68,7 @@ SQL Server 환경에서 힙(Heap), 비클러스터형 인덱스(Non-Clustered In
 - **ODBC Driver 18 for SQL Server** (또는 운영체제에 맞는 SQL Server ODBC 드라이버)
 - 실행에 필요한 Python 패키지 설치:
   ```bash
-  pip install pyodbc matplotlib
+  pip install pyodbc matplotlib tabulate numpy
   ```
 
 ### 2. 설정 파일 구성 (Configuration)
@@ -70,12 +84,18 @@ SQL Server 환경에서 힙(Heap), 비클러스터형 인덱스(Non-Clustered In
 ```
 
 ### 3. 벤치마크 실행 (Execution)
-터미널에서 아래의 명령어를 실행하여 벤치마크를 수행합니다.
+터미널에서 아래의 명령어들을 실행하여 각각의 벤치마크를 수행할 수 있습니다.
 ```bash
-# 전체 세부 벤치마크 실행 (Sequential/Random Insert 및 디테일한 CRUD 측정)
+# 1. 기본 인덱스 성능 벤치마크 (Basic)
 python3 src/benchmark.py
+
+# 2. 힙 연산 성능 벤치마크 (Heap Ops)
+python3 src/benchmark_heap_ops.py
+
+# 3. 인덱스 유무/타겟에 따른 CUD 벤치마크 (CUD)
+python3 src/benchmark_cud.py
 ```
-실행이 완료되면 루트 디렉토리 아래 `result/` 폴더에 벤치마크 결과 데이터를 담은 `.json` 파일과 시각화된 통계 차트(`.png`)들이 자동으로 저장됩니다.
+실행이 완료되면 루트 디렉토리 아래 `result/basic/`, `result/heap_ops/`, `result/cud/` 폴더에 각각의 벤치마크 결과 데이터를 담은 `.json` 파일과 시각화된 통계 차트(`.png`)들이 자동으로 저장됩니다.
 
 ---
 

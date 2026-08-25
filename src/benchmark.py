@@ -39,7 +39,7 @@ PWD = _db_config['PWD']
 DATABASE = _db_config['DATABASE']
 
 DATA_SIZES = [100, 1000, 10000, 100000]
-OUTPUT_DIR = os.path.join(BASE_DIR, 'result')
+OUTPUT_DIR = os.path.join(BASE_DIR, 'result', 'basic')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Number of individual operations for point queries / updates / deletes
