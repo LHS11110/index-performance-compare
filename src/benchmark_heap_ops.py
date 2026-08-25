@@ -46,7 +46,7 @@ REPEAT_COUNT = 100
 
 
 # Result TOP divisor: outer SELECT returns N/RESULT_TOP_DIVISOR rows
-RESULT_TOP_DIVISOR = 10
+RESULT_TOP_DIVISOR = 1
 RESULT_TOP_PCT = 100 / RESULT_TOP_DIVISOR
 
 # ── Three scenarios ───────────────────────────────────────────────────
