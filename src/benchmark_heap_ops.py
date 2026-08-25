@@ -46,7 +46,7 @@ REPEAT_COUNT = 100
 
 
 # Result TOP divisor: outer SELECT returns N/RESULT_TOP_DIVISOR rows
-RESULT_TOP_DIVISOR = 1
+RESULT_TOP_DIVISOR = 10
 RESULT_TOP_PCT = 100 / RESULT_TOP_DIVISOR
 
 # ── Three scenarios ───────────────────────────────────────────────────
@@ -177,8 +177,12 @@ def bench_group_by(cursor, table, n):
     """GROUP BY on val2 — SELECT TOP 1/RESULT_TOP_DIVISOR."""
     result_top = max(1, n // RESULT_TOP_DIVISOR)
     sql = f"""
-        SELECT TOP ({result_top}) val2, COUNT(*) AS cnt, AVG(id) AS avg_id
-        FROM [{table}]
+        SELECT val2, COUNT(*) AS cnt, AVG(id) AS avg_id
+        FROM (
+            SELECT TOP ({result_top}) id, val1, val2, val3
+            FROM [{table}]
+            ORDER BY val2
+        ) AS iv
         GROUP BY val2
     """
 
